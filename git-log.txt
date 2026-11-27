@@ -1,0 +1,19 @@
+*   6c9b20e merge: 合并暂停冻结与状态快照（feature/pause-resume）
+|\  
+| * 41f866b feat(pause): 暂停期间冻结局面，只响应 P/R/M
+|/  
+*   b2eddb7 merge: 合并速度等级与下落加速（feature/speed-up）
+|\  
+| * 540a290 feat(speed): 每累计 10 行提升一档下落速度
+|/  
+*   b7d4407 merge: 合并连击翻倍计分（feature/combo-bonus）
+|\  
+| * 0af64f4 feat(score): 连击消行第二次起得分翻倍
+|/  
+*   35e108d merge: 合并双人模式与单双人切换（feature/two-player）
+|\  
+| * 836535d fix(input): 方向键兼容终端 VT 序列，修复双人右侧无法旋转
+| * 785f055 feat(mode): 新增双人模式与单双人切换
+|/  
+* 25bbce4 docs: 定义 v2.0 需求与 Git 协作约定
+* ad1378d chore: 导入第二周俄罗斯方块作品作为基线
