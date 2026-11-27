@@ -576,5 +576,65 @@ class SpeedTest(unittest.TestCase):
         self.assertAlmostEqual(match.games[1].drop_interval, 0.5)
 
 
+def snapshot(game):
+    """记录一局的可比较状态，用于断言暂停前后完全一致（spec 6.7 / FR-19）。"""
+    return {
+        "board": [row[:] for row in game.board],
+        "piece": dict(game.piece) if game.piece else None,
+        "score": game.score,
+        "combo": game.combo,
+        "lines": game.lines,
+        "level": game.level,
+    }
+
+
+class PauseSnapshotTest(unittest.TestCase):
+    """暂停期间局面完全冻结，恢复后从原状态继续（spec 6.7 / FR-11 / FR-19）。"""
+
+    def test_single_player_pause_freezes_everything(self):
+        game = make_game("T")
+        force_clear(game, 1)  # 先造出分数、连击与累计行数
+        game.move_left()
+        before = snapshot(game)
+        self.assertTrue(game.toggle_pause())
+        self.assertEqual(game.state, game_logic.PAUSED)
+        # 暂停期间所有操作都不得改变局面
+        game.step()
+        game.move_left()
+        game.move_right()
+        game.rotate()
+        game.soft_drop()
+        self.assertEqual(snapshot(game), before)
+        # 恢复后仍是暂停前那一局，且能继续下落
+        self.assertTrue(game.toggle_pause())
+        self.assertEqual(game.state, game_logic.PLAYING)
+        self.assertEqual(snapshot(game), before)
+        self.assertTrue(game.step())
+
+    def test_versus_pause_freezes_both_boards(self):
+        with mock.patch("game_logic.random.choice", side_effect=["T", "L"]):
+            match = game_logic.Match(game_logic.MODE_VERSUS)
+        match.games[0].move_left()
+        before = [snapshot(game) for game in match.games]
+        self.assertTrue(match.toggle_pause())
+        for game in match.games:
+            game.step()
+            game.move_right()
+            game.rotate()
+        self.assertEqual([snapshot(game) for game in match.games], before)
+        self.assertTrue(match.toggle_pause())
+        self.assertEqual([snapshot(game) for game in match.games], before)
+
+    def test_pause_after_restart_leaves_clean_state(self):
+        game = make_game("T")
+        force_clear(game, 2)
+        game.restart()
+        game.toggle_pause()
+        self.assertEqual(game.score, 0)
+        self.assertEqual(game.combo, 0)
+        self.assertEqual(game.lines, 0)
+        self.assertEqual(game.level, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
