@@ -22,7 +22,6 @@ BOARD_WIDTH = game_logic.COLS * len(CELL) + 2
 INFO_GAP = "  "
 BOARD_GAP = "  "
 
-DROP_INTERVAL = 0.5
 POLL_INTERVAL = 0.05
 
 KEY_HELP = ("A/D move", "S down", "W rotate", "P pause", "R restart", "M mode", "Q quit")
@@ -89,6 +88,7 @@ def render_single(match):
         "Score: {}".format(game.score),
         "State: {}".format(game.state),
         "Combo: {}".format(game.combo),
+        "Level: {}".format(game.level),
         "",
     ]
     info += list(KEY_HELP)
@@ -115,8 +115,9 @@ def render_versus(match):
     left, right = match.games
     left_board = render_board(left.board, left.piece["cells"] if left.piece else ())
     right_board = render_board(right.board, right.piece["cells"] if right.piece else ())
-    header = "P1  Score:{} Cb:{}".format(left.score, left.combo).ljust(BOARD_WIDTH)
-    header += BOARD_GAP + "P2  Score:{} Cb:{}".format(right.score, right.combo)
+    # 分数可能上到 6 位数，抬头用紧凑写法，保证整行仍 ≤46 列（spec 5.3）。
+    header = "P1 {} L{} C{}".format(left.score, left.level, left.combo).ljust(BOARD_WIDTH)
+    header += BOARD_GAP + "P2 {} L{} C{}".format(right.score, right.level, right.combo)
     lines = [header.rstrip()]
     for index in range(len(left_board)):
         lines.append(left_board[index] + BOARD_GAP + right_board[index])
@@ -292,7 +293,7 @@ def _play(match):
         if size_ok and match.state == game_logic.PLAYING:
             now = time.monotonic()
             for index, game in enumerate(match.games):
-                if now - timers[index] >= DROP_INTERVAL:
+                if now - timers[index] >= game.drop_interval:
                     game.step()
                     timers[index] = now
         draw(match)
