@@ -130,6 +130,8 @@ class Game:
     def __init__(self):
         self.board = create_board()
         self.score = 0
+        # 连击计数：连续消行的次数，未消行时清零（spec 6.6 / R6）。
+        self.combo = 0
         self.state = PLAYING
         self.piece = None
         self.too_small = False
@@ -195,7 +197,13 @@ class Game:
         lock_piece(self.board, self.piece["cells"])
         self.piece = None
         self.board, cleared = clear_lines(self.board)
-        self.score += cleared * LINE_SCORE
+        if cleared:
+            # 连击：第 2 次及以后每次消行翻倍，不叠乘（spec 6.6 / R6）。
+            self.combo += 1
+            bonus = 2 if self.combo >= 2 else 1
+            self.score += cleared * LINE_SCORE * bonus
+        else:
+            self.combo = 0
         self._spawn()
 
     def toggle_pause(self):
@@ -227,6 +235,7 @@ class Game:
         """R 键：任意状态都可重开，见 FR-12。"""
         self.board = create_board()
         self.score = 0
+        self.combo = 0
         self.state = PLAYING
         self.piece = None
         self.manual_paused = False
