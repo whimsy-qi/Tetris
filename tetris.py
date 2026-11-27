@@ -242,6 +242,9 @@ def handle_key(match, key):
     if not key:
         return None
     key = key.lower()
+    # 暂停时只接受 P/R/M（Q 由主循环处理），移动与旋转一律不改棋盘（spec 6.7）。
+    if match.state == game_logic.PAUSED and key not in ("p", "r", "m"):
+        return None
     if key == "p":
         match.toggle_pause()
         return "all"
