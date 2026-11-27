@@ -84,7 +84,13 @@ def render_single(match):
     """单人：棋盘在左、信息区在右（沿用 v1 布局，spec 5.1）。"""
     game = match.games[0]
     board_lines = render_board(game.board, game.piece["cells"] if game.piece else ())
-    info = ["", "Score: {}".format(game.score), "State: {}".format(game.state), ""]
+    info = [
+        "",
+        "Score: {}".format(game.score),
+        "State: {}".format(game.state),
+        "Combo: {}".format(game.combo),
+        "",
+    ]
     info += list(KEY_HELP)
     lines = []
     for index, board_line in enumerate(board_lines):
@@ -109,8 +115,8 @@ def render_versus(match):
     left, right = match.games
     left_board = render_board(left.board, left.piece["cells"] if left.piece else ())
     right_board = render_board(right.board, right.piece["cells"] if right.piece else ())
-    header = "P1  Score:{}".format(left.score).ljust(BOARD_WIDTH)
-    header += BOARD_GAP + "P2  Score:{}".format(right.score)
+    header = "P1  Score:{} Cb:{}".format(left.score, left.combo).ljust(BOARD_WIDTH)
+    header += BOARD_GAP + "P2  Score:{} Cb:{}".format(right.score, right.combo)
     lines = [header.rstrip()]
     for index in range(len(left_board)):
         lines.append(left_board[index] + BOARD_GAP + right_board[index])

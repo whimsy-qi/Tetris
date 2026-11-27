@@ -204,6 +204,17 @@ def empty_board():
     return [[0] * COLS for _ in range(ROWS)]
 
 
+def force_clear(game, lines=1):
+    """把棋盘铺成只差两格的 n 行，让 O 方块落到底补满并消行（连击测试用）。"""
+    game.board = empty_board()
+    for row in range(ROWS - lines, ROWS):
+        for col in (0, 1, 2, 3, 6, 7, 8, 9):
+            game.board[row][col] = 1
+    game.piece = game_logic.new_piece("O")
+    while game.step():
+        pass
+
+
 class ClearLinesTest(unittest.TestCase):
     def test_sample_a_single_full_bottom_row_is_cleared(self):
         board = empty_board()
@@ -449,6 +460,59 @@ class MatchTest(unittest.TestCase):
         self.assertEqual(match.state, game_logic.PAUSED)
         match.set_terminal_too_small(False)
         self.assertEqual(match.state, game_logic.PLAYING)
+
+
+class ComboTest(unittest.TestCase):
+    """连击计分：第 2 次及以后翻倍、中断清零、不叠乘（spec 6.6 / FR-17）。"""
+
+    def test_first_clear_scores_one_hundred_without_bonus(self):
+        game = make_game("O")
+        force_clear(game, 1)
+        self.assertEqual(game.combo, 1)
+        self.assertEqual(game.score, 100)
+
+    def test_second_consecutive_clear_is_doubled(self):
+        game = make_game("O")
+        force_clear(game, 1)
+        force_clear(game, 1)
+        self.assertEqual(game.combo, 2)
+        self.assertEqual(game.score, 300)
+
+    def test_third_clear_is_still_doubled_not_quadrupled(self):
+        game = make_game("O")
+        for _ in range(3):
+            force_clear(game, 1)
+        self.assertEqual(game.combo, 3)
+        self.assertEqual(game.score, 500)
+
+    def test_clear_without_clearing_a_line_resets_combo(self):
+        game = make_game("O")
+        force_clear(game, 1)
+        # 空棋盘上固定一块、没有消行 → 连击清零，分数不变
+        game.board = empty_board()
+        game.piece = game_logic.new_piece("O")
+        while game.step():
+            pass
+        self.assertEqual(game.combo, 0)
+        self.assertEqual(game.score, 100)
+        # 之后第一次消行回到基础分
+        force_clear(game, 1)
+        self.assertEqual(game.combo, 1)
+        self.assertEqual(game.score, 200)
+
+    def test_two_line_clear_on_second_combo_scores_four_hundred(self):
+        game = make_game("O")
+        force_clear(game, 1)
+        force_clear(game, 2)
+        self.assertEqual(game.combo, 2)
+        self.assertEqual(game.score, 500)
+
+    def test_restart_resets_combo(self):
+        game = make_game("O")
+        force_clear(game, 1)
+        game.restart()
+        self.assertEqual(game.combo, 0)
+        self.assertEqual(game.score, 0)
 
 
 if __name__ == "__main__":
