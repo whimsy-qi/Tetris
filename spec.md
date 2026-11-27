@@ -95,7 +95,7 @@
 左右两块棋盘，各 22 字符列，中间空 2 列；顶部一行显示双方分数/等级/连击，底部两行放按键说明（统一用 ASCII，避免全角符号撑破对齐）。
 
 ```
-P1  Score:0 Lv:1 Cb:0    P2  Score:0 Lv:1 Cb:0
+P1 0 L1 C0                    P2 0 L1 C0
 +--------------------+  +--------------------+
 |                    |  |                    |
 |                    |  |                    |
@@ -109,6 +109,8 @@ P1  Score:0 Lv:1 Cb:0    P2  Score:0 Lv:1 Cb:0
 P1 A/D/S/W    P2 arrows    P pause    M mode
 R restart    Q quit
 ```
+
+抬头用紧凑写法（分数、等级 Lv、连击 Cb），分数上到 6 位数时整行仍不超过 46 列。
 
 暂停或结束时，用底部提示行显示状态，例如 `Paused - press P`、`Game Over - P2 wins`，不额外占用行。
 

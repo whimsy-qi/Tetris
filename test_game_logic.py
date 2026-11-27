@@ -515,5 +515,66 @@ class ComboTest(unittest.TestCase):
         self.assertEqual(game.score, 0)
 
 
+class SpeedTest(unittest.TestCase):
+    """速度等级：每累计 10 行升一级、0.8 系数、0.1 秒下限（spec 6.5 / FR-18）。"""
+
+    def test_new_game_starts_at_level_one_with_half_second(self):
+        game = make_game("O")
+        self.assertEqual(game.lines, 0)
+        self.assertEqual(game.level, 1)
+        self.assertAlmostEqual(game.drop_interval, 0.5)
+
+    def test_nine_lines_stay_at_level_one(self):
+        game = make_game("O")
+        for _ in range(9):
+            force_clear(game, 1)
+        self.assertEqual(game.lines, 9)
+        self.assertEqual(game.level, 1)
+        self.assertAlmostEqual(game.drop_interval, 0.5)
+
+    def test_ten_lines_upgrade_to_level_two(self):
+        game = make_game("O")
+        for _ in range(10):
+            force_clear(game, 1)
+        self.assertEqual(game.lines, 10)
+        self.assertEqual(game.level, 2)
+        self.assertAlmostEqual(game.drop_interval, 0.4)
+
+    def test_twenty_lines_upgrade_to_level_three(self):
+        game = make_game("O")
+        for _ in range(10):
+            force_clear(game, 2)
+        self.assertEqual(game.lines, 20)
+        self.assertEqual(game.level, 3)
+        self.assertAlmostEqual(game.drop_interval, 0.32)
+
+    def test_interval_never_goes_below_one_tenth_of_a_second(self):
+        game = make_game("O")
+        for _ in range(100):  # 每次消 2 行，累计 200 行
+            force_clear(game, 2)
+        self.assertEqual(game.lines, 200)
+        self.assertGreater(game.level, 9)
+        self.assertAlmostEqual(game.drop_interval, 0.1)
+
+    def test_restart_resets_level_and_interval(self):
+        game = make_game("O")
+        for _ in range(10):
+            force_clear(game, 1)
+        game.restart()
+        self.assertEqual(game.lines, 0)
+        self.assertEqual(game.level, 1)
+        self.assertAlmostEqual(game.drop_interval, 0.5)
+
+    def test_each_player_keeps_its_own_level(self):
+        with mock.patch("game_logic.random.choice", return_value="O"):
+            match = game_logic.Match(game_logic.MODE_VERSUS)
+        for _ in range(10):
+            force_clear(match.games[0], 1)
+        self.assertEqual(match.games[0].level, 2)
+        self.assertEqual(match.games[1].level, 1)
+        self.assertAlmostEqual(match.games[0].drop_interval, 0.4)
+        self.assertAlmostEqual(match.games[1].drop_interval, 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()

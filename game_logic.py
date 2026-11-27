@@ -11,6 +11,12 @@ COLS = 10
 # 每消除一行加 100 分（spec 6.6 / R3）。
 LINE_SCORE = 100
 
+# 速度等级（spec 6.5 / R7）：每累计 10 行升 1 级，间隔 0.5×0.8^(lv-1)，下限 0.1 秒。
+LINES_PER_LEVEL = 10
+BASE_DROP_INTERVAL = 0.5
+SPEED_STEP = 0.8
+MIN_DROP_INTERVAL = 0.1
+
 PLAYING = "Playing"
 PAUSED = "Paused"
 GAME_OVER = "Game Over"
@@ -132,6 +138,8 @@ class Game:
         self.score = 0
         # 连击计数：连续消行的次数，未消行时清零（spec 6.6 / R6）。
         self.combo = 0
+        # 累计消除行数，决定速度等级（spec 6.5 / R7）。
+        self.lines = 0
         self.state = PLAYING
         self.piece = None
         self.too_small = False
@@ -149,6 +157,19 @@ class Game:
 
     def _controllable(self):
         return self.state == PLAYING and self.piece is not None
+
+    @property
+    def level(self):
+        """等级从 1 开始，每累计消除 10 行 +1（spec 6.5 / R7）。"""
+        return 1 + self.lines // LINES_PER_LEVEL
+
+    @property
+    def drop_interval(self):
+        """当前下落间隔：随等级缩短，最低 0.1 秒（spec 6.5 / R7）。"""
+        return max(
+            MIN_DROP_INTERVAL,
+            BASE_DROP_INTERVAL * SPEED_STEP ** (self.level - 1),
+        )
 
     def move_left(self):
         return self._shift(0, -1)
@@ -197,6 +218,7 @@ class Game:
         lock_piece(self.board, self.piece["cells"])
         self.piece = None
         self.board, cleared = clear_lines(self.board)
+        self.lines += cleared
         if cleared:
             # 连击：第 2 次及以后每次消行翻倍，不叠乘（spec 6.6 / R6）。
             self.combo += 1
@@ -236,6 +258,7 @@ class Game:
         self.board = create_board()
         self.score = 0
         self.combo = 0
+        self.lines = 0
         self.state = PLAYING
         self.piece = None
         self.manual_paused = False
