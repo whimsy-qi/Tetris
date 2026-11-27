@@ -363,5 +363,93 @@ class RestartTest(unittest.TestCase):
         self.assertTrue(all(cell == 0 for row in game.board for cell in row))
 
 
+class MatchTest(unittest.TestCase):
+    """双人模式、模式切换与胜负判定（spec 6.8/6.9、FR-13~FR-16）。"""
+
+    def make_match(self, mode):
+        with mock.patch("game_logic.random.choice", return_value="O"):
+            return game_logic.Match(mode)
+
+    def test_single_mode_has_one_board(self):
+        match = self.make_match(game_logic.MODE_SINGLE)
+        self.assertEqual(len(match.games), 1)
+        self.assertEqual(match.state, game_logic.PLAYING)
+
+    def test_versus_mode_has_two_independent_boards(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        self.assertEqual(len(match.games), 2)
+        left, right = match.games
+        right_before = set(right.piece["cells"])
+        self.assertTrue(left.move_left())
+        self.assertEqual(set(right.piece["cells"]), right_before)
+        self.assertNotEqual(set(left.piece["cells"]), right_before)
+
+    def test_switch_mode_rebuilds_boards_and_clears_score(self):
+        match = self.make_match(game_logic.MODE_SINGLE)
+        match.games[0].score = 300
+        self.assertEqual(match.switch_mode(), game_logic.MODE_VERSUS)
+        self.assertEqual(len(match.games), 2)
+        self.assertEqual([game.score for game in match.games], [0, 0])
+        self.assertEqual(match.switch_mode(), game_logic.MODE_SINGLE)
+        self.assertEqual(len(match.games), 1)
+
+    def test_restart_keeps_mode(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        match.games[0].score = 100
+        match.restart()
+        self.assertEqual(match.mode, game_logic.MODE_VERSUS)
+        self.assertEqual(len(match.games), 2)
+        self.assertEqual(match.games[0].score, 0)
+
+    def test_first_player_dead_makes_second_the_winner(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        match.games[0].state = game_logic.GAME_OVER
+        self.assertTrue(match.over())
+        self.assertEqual(match.state, game_logic.GAME_OVER)
+        self.assertEqual(match.result(), "P2 wins")
+
+    def test_second_player_dead_makes_first_the_winner(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        match.games[1].state = game_logic.GAME_OVER
+        self.assertEqual(match.result(), "P1 wins")
+
+    def test_both_dead_is_draw(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        for game in match.games:
+            game.state = game_logic.GAME_OVER
+        self.assertEqual(match.result(), "Draw")
+
+    def test_single_mode_result_is_plain_game_over(self):
+        match = self.make_match(game_logic.MODE_SINGLE)
+        match.games[0].state = game_logic.GAME_OVER
+        self.assertEqual(match.result(), game_logic.GAME_OVER)
+
+    def test_pause_pauses_both_boards_and_resumes(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        self.assertTrue(match.toggle_pause())
+        self.assertEqual(
+            [game.state for game in match.games],
+            [game_logic.PAUSED, game_logic.PAUSED],
+        )
+        self.assertEqual(match.state, game_logic.PAUSED)
+        for game in match.games:
+            self.assertFalse(game.step())
+        self.assertTrue(match.toggle_pause())
+        self.assertEqual(match.state, game_logic.PLAYING)
+
+    def test_pause_is_ignored_after_game_over(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        match.games[0].state = game_logic.GAME_OVER
+        self.assertFalse(match.toggle_pause())
+        self.assertEqual(match.games[1].state, game_logic.PLAYING)
+
+    def test_terminal_too_small_pauses_both_and_restores(self):
+        match = self.make_match(game_logic.MODE_VERSUS)
+        match.set_terminal_too_small(True)
+        self.assertEqual(match.state, game_logic.PAUSED)
+        match.set_terminal_too_small(False)
+        self.assertEqual(match.state, game_logic.PLAYING)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,25 +10,41 @@ import time
 
 import game_logic
 
-# 完整界面不得小于 40 字符列 × 28 字符行，见 spec 5.2 / 5.4。
-MIN_COLS = 40
-MIN_ROWS = 28
+# 各模式所需的最小终端尺寸，见 spec 5.3。
+MIN_SIZE = {
+    game_logic.MODE_SINGLE: (40, 28),
+    game_logic.MODE_VERSUS: (46, 26),
+}
 
 CELL = "[]"
 EMPTY = "  "
 BOARD_WIDTH = game_logic.COLS * len(CELL) + 2
 INFO_GAP = "  "
+BOARD_GAP = "  "
 
 DROP_INTERVAL = 0.5
 POLL_INTERVAL = 0.05
 
-KEY_HELP = ("A/D move", "S down", "W rotate", "P pause", "R restart", "Q quit")
+KEY_HELP = ("A/D move", "S down", "W rotate", "P pause", "R restart", "M mode", "Q quit")
+VERSUS_HELP = ("P1 A/D/S/W   P2 arrows   P pause   M mode", "R restart   Q quit")
+MENU_LINES = (
+    "终端俄罗斯方块 · v2",
+    "",
+    "1  单人模式",
+    "2  双人模式",
+    "",
+    "Q  退出",
+)
 
-TOO_SMALL_HINT = "请将终端调整为至少 40 列 × 28 行"
-STARTUP_HINT = "请将终端调整为至少 40 列 × 28 行后重新运行"
+TOO_SMALL_HINT = "终端太小：需要至少 {cols} 列 × {rows} 行"
+STARTUP_HINT = "请将终端调整为至少 {cols} 列 × {rows} 行后重新运行"
 QUIT_HINT = "按 Q 退出"
 
 CLEAR_SCREEN = "\x1b[2J\x1b[H"
+
+# 方向键：Windows 用扫描码，POSIX 用 ESC [ 序列（spec 5.4）。
+WINDOWS_ARROWS = {72: "up", 80: "down", 75: "left", 77: "right"}
+POSIX_ARROWS = {"[A": "up", "[B": "down", "[C": "right", "[D": "left"}
 
 _saved_posix_attrs = None
 
@@ -38,13 +54,14 @@ def terminal_size():
     return size.columns, size.lines
 
 
-def fits_terminal(size):
-    cols, rows = size
-    return cols >= MIN_COLS and rows >= MIN_ROWS
+def fits_terminal(mode):
+    cols, rows = terminal_size()
+    need_cols, need_rows = MIN_SIZE[mode]
+    return cols >= need_cols and rows >= need_rows
 
 
 def render_board(board, piece_cells=()):
-    """22 行、每行 22 字符（含 1 字符边框），见 spec 5.2。"""
+    """22 行、每行 22 字符（含 1 字符边框），见 spec 5.3。"""
     active = set(piece_cells)
     border = "+" + "-" * (BOARD_WIDTH - 2) + "+"
     lines = [border]
@@ -58,29 +75,67 @@ def render_board(board, piece_cells=()):
     return lines
 
 
-def render_info(score, state):
-    """信息区：分数、状态、空行、按键说明，见 spec 5.1。"""
-    return ["Score: {}".format(score), "State: {}".format(state), ""] + list(KEY_HELP)
+def _too_small_line(mode):
+    cols, rows = MIN_SIZE[mode]
+    return TOO_SMALL_HINT.format(cols=cols, rows=rows)
 
 
-def render(game):
-    """按 spec 5.1 左右拼接；裁掉尾随空格以守住 40 列上限。"""
-    piece_cells = game.piece["cells"] if game.piece else ()
-    board_lines = render_board(game.board, piece_cells)
-    info_lines = [""] + render_info(game.score, game.state)
+def render_single(match):
+    """单人：棋盘在左、信息区在右（沿用 v1 布局，spec 5.1）。"""
+    game = match.games[0]
+    board_lines = render_board(game.board, game.piece["cells"] if game.piece else ())
+    info = ["", "Score: {}".format(game.score), "State: {}".format(game.state), ""]
+    info += list(KEY_HELP)
     lines = []
     for index, board_line in enumerate(board_lines):
-        info = info_lines[index] if index < len(info_lines) else ""
-        lines.append((board_line + INFO_GAP + info).rstrip())
-    if game.too_small:
-        lines.append(TOO_SMALL_HINT)
+        extra = info[index] if index < len(info) else ""
+        lines.append((board_line + INFO_GAP + extra).rstrip())
+    if match.too_small:
+        lines.append(_too_small_line(match.mode))
     return lines
 
 
-def draw(game):
+def status_line(match):
+    """双人状态提示放在棋盘下方那一行，避免额外占用行数（spec 5.2）。"""
+    if match.state == game_logic.GAME_OVER:
+        return "Game Over - " + match.result()
+    if match.state == game_logic.PAUSED:
+        return "Paused - press P"
+    return ""
+
+
+def render_versus(match):
+    """双人：两块 22 列棋盘并排，顶部信息、底部提示，共 26 行（spec 5.2）。"""
+    left, right = match.games
+    left_board = render_board(left.board, left.piece["cells"] if left.piece else ())
+    right_board = render_board(right.board, right.piece["cells"] if right.piece else ())
+    header = "P1  Score:{}".format(left.score).ljust(BOARD_WIDTH)
+    header += BOARD_GAP + "P2  Score:{}".format(right.score)
+    lines = [header.rstrip()]
+    for index in range(len(left_board)):
+        lines.append(left_board[index] + BOARD_GAP + right_board[index])
+    lines.append(status_line(match))
+    lines.extend(VERSUS_HELP)
+    if match.too_small:
+        lines.append(_too_small_line(match.mode))
+    return [line.rstrip() for line in lines]
+
+
+def render(match):
+    if match.mode == game_logic.MODE_VERSUS:
+        return render_versus(match)
+    return render_single(match)
+
+
+def draw(match):
     """回到左上角逐行覆盖并擦到行尾，避免整屏闪烁。"""
-    lines = render(game)
+    lines = render(match)
     sys.stdout.write("\x1b[H" + "\n".join(line + "\x1b[K" for line in lines) + "\x1b[J")
+    sys.stdout.flush()
+
+
+def draw_lines(lines):
+    sys.stdout.write(CLEAR_SCREEN + "\n".join(lines))
     sys.stdout.flush()
 
 
@@ -129,8 +184,20 @@ def _enable_ansi():
         pass
 
 
+def _read_escape_tail(msvcrt):
+    """读取 ESC 之后的 2 个字符（形如 '[A'），用于兼容把方向键送成 VT 序列的终端。"""
+    seq = ""
+    deadline = time.monotonic() + 0.02
+    while len(seq) < 2 and time.monotonic() < deadline:
+        if msvcrt.kbhit():
+            seq += msvcrt.getwch()
+        else:
+            time.sleep(0.002)
+    return seq
+
+
 def read_key():
-    """非阻塞读一个键；没有按键时返回 None。"""
+    """非阻塞读一个键；返回单字符或 'up'/'down'/'left'/'right'，没按键返回 None。"""
     if os.name == "nt":
         import msvcrt
 
@@ -138,72 +205,121 @@ def read_key():
             return None
         char = msvcrt.getwch()
         if char in ("\x00", "\xe0"):
-            msvcrt.getwch()  # 方向键等双字节键：丢掉第二字节后忽略
-            return None
+            # 常规控制台：前缀 0xE0/0x00 + 扫描码。
+            code = msvcrt.getwch()
+            return WINDOWS_ARROWS.get(ord(code))
+        if char == "\x1b":
+            # VT 输入模式的终端（部分 Windows Terminal / ConPTY 配置）：ESC [ A 这样的序列。
+            return POSIX_ARROWS.get(_read_escape_tail(msvcrt))
         return char
     import select
 
     ready, _, _ = select.select([sys.stdin], [], [], 0)
     if not ready:
         return None
-    return sys.stdin.read(1)
+    char = sys.stdin.read(1)
+    if char != "\x1b":
+        return char
+    # 方向键是 ESC + '[' + 字母；ESC 单独按下时读不到后续字符，返回 None 忽略。
+    seq = ""
+    while len(seq) < 2:
+        ready, _, _ = select.select([sys.stdin], [], [], 0.02)
+        if not ready:
+            break
+        seq += sys.stdin.read(1)
+    return POSIX_ARROWS.get(seq)
 
 
-def handle_key(game, key):
-    """执行一个按键；返回是否需要重置自动下落计时。"""
-    if key is None:
-        return False
+def handle_key(match, key):
+    """执行一个按键；返回要重置下落的玩家编号，'all' 表示全部，None 表示不需要。"""
+    if not key:
+        return None
     key = key.lower()
-    if key == "a":
+    if key == "p":
+        match.toggle_pause()
+        return "all"
+    if key == "r":
+        match.restart()
+        return "all"
+    if key == "m":
+        match.switch_mode()
+        return "all"
+    if key in ("a", "d", "s", "w"):
+        player, action = 0, key
+    elif key in ("up", "down", "left", "right") and match.mode == game_logic.MODE_VERSUS:
+        player, action = 1, {"left": "a", "right": "d", "down": "s", "up": "w"}[key]
+    else:
+        return None
+    game = match.games[player]
+    if action == "a":
         game.move_left()
-    elif key == "d":
+    elif action == "d":
         game.move_right()
-    elif key == "s":
+    elif action == "s":
         game.soft_drop()
-        return True
-    elif key == "w":
+        return player
+    elif action == "w":
         game.rotate()
-    elif key == "p":
-        game.toggle_pause()
-        return game.state == game_logic.PLAYING
-    elif key == "r":
-        game.restart()
-        return True
-    return False
+    return None
 
 
-def _play(game):
-    last_drop = time.monotonic()
-    draw(game)
+def _play(match):
+    """主循环：按键 → 定时下落 → 重画；每块棋盘各自计时，便于将来独立调速。"""
+    timers = [time.monotonic() for _ in match.games]
+    draw(match)
     while True:
         key = read_key()
-        if key is not None and key.lower() == "q":
+        if key and key.lower() == "q":
             return
-        too_small = not fits_terminal(terminal_size())
-        restored = game.too_small and not too_small
-        game.set_terminal_too_small(too_small)
+        size_ok = fits_terminal(match.mode)
+        restored = match.too_small and size_ok
+        match.set_terminal_too_small(not size_ok)
         if restored:
-            last_drop = time.monotonic()  # 恢复后从此刻重新计时（spec 5.4）
-        if not too_small and handle_key(game, key):
-            last_drop = time.monotonic()
-        now = time.monotonic()
-        if (
-            not too_small
-            and game.state == game_logic.PLAYING
-            and now - last_drop >= DROP_INTERVAL
-        ):
-            game.step()
-            last_drop = now
-        draw(game)
+            timers = [time.monotonic() for _ in match.games]
+        if size_ok:
+            target = handle_key(match, key)
+            now = time.monotonic()
+            if target == "all":
+                timers = [now for _ in match.games]
+            elif isinstance(target, int):
+                timers[target] = now
+        if size_ok and match.state == game_logic.PLAYING:
+            now = time.monotonic()
+            for index, game in enumerate(match.games):
+                if now - timers[index] >= DROP_INTERVAL:
+                    game.step()
+                    timers[index] = now
+        draw(match)
         time.sleep(POLL_INTERVAL)
 
 
-def _wait_for_quit():
-    sys.stdout.write(STARTUP_HINT + "\n" + QUIT_HINT + "\n")
-    sys.stdout.flush()
+def _choose_mode():
+    """启动菜单：1 单人、2 双人、Q 退出（spec FR-13）。"""
+    draw_lines(MENU_LINES)
     while True:
         key = read_key()
-        if key is not None and key.lower() == "q":
+        if key:
+            key = key.lower()
+            if key == "1":
+                return game_logic.MODE_SINGLE
+            if key == "2":
+                return game_logic.MODE_VERSUS
+            if key == "q":
+                return None
+        time.sleep(POLL_INTERVAL)
+
+
+def _wait_for_quit(mode):
+    cols, rows = MIN_SIZE[mode]
+    draw_lines(
+        [
+            STARTUP_HINT.format(cols=cols, rows=rows),
+            QUIT_HINT,
+        ]
+    )
+    while True:
+        key = read_key()
+        if key and key.lower() == "q":
             return
         time.sleep(POLL_INTERVAL)
 
@@ -212,10 +328,14 @@ def main():
     configure_output()
     setup_terminal()
     try:
-        if not fits_terminal(terminal_size()):
-            _wait_for_quit()
+        mode = _choose_mode()
+        if mode is None:
+            return 0
+        match = game_logic.Match(mode)
+        if not fits_terminal(mode):
+            _wait_for_quit(mode)
         else:
-            _play(game_logic.Game())
+            _play(match)
     except KeyboardInterrupt:
         pass  # finally 会恢复终端并清屏
     finally:

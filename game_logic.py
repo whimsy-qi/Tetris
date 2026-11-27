@@ -15,6 +15,10 @@ PLAYING = "Playing"
 PAUSED = "Paused"
 GAME_OVER = "Game Over"
 
+# 游戏模式，见 spec 6.9：单人一块棋盘，双人两块。
+MODE_SINGLE = "single"
+MODE_VERSUS = "versus"
+
 # 七种方块的初始方阵，见 spec 6.2（`.` 空、`X` 实心）。
 SHAPES = {
     "I": ("....", "XXXX", "....", "...."),
@@ -227,3 +231,64 @@ class Game:
         self.piece = None
         self.manual_paused = False
         self._spawn()
+
+class Match:
+    """一盘对局：单人 1 块棋盘、双人 2 块，管模式切换、暂停与胜负（spec 6.8/6.9）。"""
+
+    def __init__(self, mode=MODE_SINGLE):
+        self.mode = mode
+        self.games = self._new_games(mode)
+        self.too_small = False
+
+    @staticmethod
+    def _new_games(mode):
+        count = 1 if mode == MODE_SINGLE else 2
+        return [Game() for _ in range(count)]
+
+    def over(self):
+        """任一方顶死即整局结束；单人就是普通 Game Over。"""
+        return any(game.state == GAME_OVER for game in self.games)
+
+    @property
+    def state(self):
+        if self.over():
+            return GAME_OVER
+        if all(game.state == PAUSED for game in self.games):
+            return PAUSED
+        return PLAYING
+
+    def result(self):
+        """结束后返回 'Game Over' / 'P1 wins' / 'P2 wins' / 'Draw'，未结束为空串。"""
+        if not self.over():
+            return ""
+        if len(self.games) == 1:
+            return GAME_OVER
+        dead = [game.state == GAME_OVER for game in self.games]
+        if all(dead):
+            return "Draw"
+        return "P2 wins" if dead[0] else "P1 wins"
+
+    def toggle_pause(self):
+        """P 键：双人时同时暂停/继续；结束后或终端过小时不处理（spec 6.7/5.5）。"""
+        if self.over() or self.too_small:
+            return False
+        for game in self.games:
+            game.toggle_pause()
+        return True
+
+    def restart(self):
+        """R 键：保持当前模式重开（spec FR-12）。"""
+        self.games = self._new_games(self.mode)
+
+    def switch_mode(self):
+        """M 键：切到另一模式并重开（spec FR-14）。"""
+        self.mode = MODE_VERSUS if self.mode == MODE_SINGLE else MODE_SINGLE
+        self.games = self._new_games(self.mode)
+        self.too_small = False
+        return self.mode
+
+    def set_terminal_too_small(self, too_small):
+        """把终端尺寸状态分发给每块棋盘，沿用 v1 的暂停/恢复语义。"""
+        self.too_small = too_small
+        for game in self.games:
+            game.set_terminal_too_small(too_small)
