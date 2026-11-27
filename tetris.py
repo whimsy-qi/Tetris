@@ -184,6 +184,18 @@ def _enable_ansi():
         pass
 
 
+def _read_escape_tail(msvcrt):
+    """读取 ESC 之后的 2 个字符（形如 '[A'），用于兼容把方向键送成 VT 序列的终端。"""
+    seq = ""
+    deadline = time.monotonic() + 0.02
+    while len(seq) < 2 and time.monotonic() < deadline:
+        if msvcrt.kbhit():
+            seq += msvcrt.getwch()
+        else:
+            time.sleep(0.002)
+    return seq
+
+
 def read_key():
     """非阻塞读一个键；返回单字符或 'up'/'down'/'left'/'right'，没按键返回 None。"""
     if os.name == "nt":
@@ -193,8 +205,12 @@ def read_key():
             return None
         char = msvcrt.getwch()
         if char in ("\x00", "\xe0"):
+            # 常规控制台：前缀 0xE0/0x00 + 扫描码。
             code = msvcrt.getwch()
             return WINDOWS_ARROWS.get(ord(code))
+        if char == "\x1b":
+            # VT 输入模式的终端（部分 Windows Terminal / ConPTY 配置）：ESC [ A 这样的序列。
+            return POSIX_ARROWS.get(_read_escape_tail(msvcrt))
         return char
     import select
 
